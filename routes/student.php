@@ -80,7 +80,7 @@ Route::middleware(['auth'])->group(function () {
         Route::get('purchase/course/{course_id}', 'purchase_course')->name('purchase.course');
         Route::post('payout', 'payout')->name('payout');
         Route::get('purchase-history', 'purchase_history')->name('purchase.history');
-        Route::get('invoice/{id}', 'invoice')->name('invoice');
+        Route::get('invoice/{id}', 'invoice')->name('my.invoice');
     });
 
     // cart routes
