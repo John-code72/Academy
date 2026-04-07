@@ -1,5 +1,2 @@
 [nixpacks]
-pkgs = ["php83"]
-
-[build]
-commands = ["install-php-extensions gd"]
+pkgs = ["php83", "php83.extensions.gd"]
