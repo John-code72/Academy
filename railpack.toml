@@ -1,2 +1,2 @@
 [nixpacks]
-pkgs = ["php83"]
+pkgs = ["php83", "php83Extensions.gd"]
