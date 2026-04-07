@@ -74,6 +74,10 @@
             "pestphp/pest-plugin": true,
             "php-http/discovery": true
         },
+        "platform": {
+            "php": "8.3",
+            "ext-gd": "1"
+        },
         "audit": {
             "ignore": ["PKSA-y2cr-5h3j-g3ys"]
         }
