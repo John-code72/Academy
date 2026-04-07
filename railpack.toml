@@ -1,0 +1,2 @@
+[nixpacks]
+pkgs = ["php83"]
