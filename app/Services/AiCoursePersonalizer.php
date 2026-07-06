@@ -10,6 +10,7 @@ use App\Models\PersonalizedCourse;
 use App\Models\PersonalizedCourseLesson;
 use App\Models\Question;
 use App\Models\QuizSubmission;
+use App\Services\KnowledgeIngestion\KnowledgeIngestionService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -1150,6 +1151,10 @@ class AiCoursePersonalizer
         $weakQuestions = collect($analysis['weak_questions'])->take(10)->implode("\n - ");
 
         $system = "You are a pedagogical course designer. You produce strict JSON only, no prose, no markdown fences.";
+        $grounding = $this->knowledgeGroundingFor($quiz->title . ' ' . $topics . ' ' . $weakQuestions);
+        $groundingBlock = $grounding !== ''
+            ? "\n\nInternal reference (use only if directly relevant; do not cite sources in the course output):\n{$grounding}\n"
+            : '';
         $user = <<<PROMPT
 A student took the quiz "{$quiz->title}" and obtained a score ratio of {$analysis['score_ratio']}.
 They missed the following questions (topics to remediate):
@@ -1157,7 +1162,7 @@ They missed the following questions (topics to remediate):
 
 Detected weak topics: {$topics}.
 Detected level: {$analysis['level']}.
-
+{$groundingBlock}
 Design a short remediation course in {$language} that specifically addresses these weaknesses.
 The course must have:
 - 1 title (clear, motivating)
@@ -1986,13 +1991,17 @@ PROMPT;
     private function callOpenAiForMainCourse(string $apiKey, Course $course, string $brief, int $lessonCount, string $language): ?array
     {
         $system = 'You are a pedagogical course designer. You produce strict JSON only, no prose, no markdown fences.';
+        $grounding = $this->knowledgeGroundingFor($course->title . ' ' . $brief);
+        $groundingBlock = $grounding !== ''
+            ? "\n\nInternal reference (use only if directly relevant; do not cite sources in the course output):\n{$grounding}\n"
+            : '';
         $user = <<<PROMPT
 Design a complete online course curriculum in {$language}.
 
 Course title: {$course->title}
 Brief: {$brief}
 Number of lessons: {$lessonCount}
-
+{$groundingBlock}
 For each lesson include:
 - section_title (use 2 section names across the course)
 - title
@@ -2271,5 +2280,20 @@ PROMPT;
         Course::where('id', $courseId)->update(['slug' => slugify($title . '-' . $courseId)]);
 
         return Course::findOrFail($courseId);
+    }
+
+    private function knowledgeGroundingFor(string $text, ?string $department = null): string
+    {
+        if (! config('knowledge_sources.enabled', true)) {
+            return '';
+        }
+
+        try {
+            return app(KnowledgeIngestionService::class)->buildGrounding(trim($text), $department, 6);
+        } catch (Throwable $e) {
+            Log::debug('Course knowledge grounding skipped', ['error' => $e->getMessage()]);
+
+            return '';
+        }
     }
 }

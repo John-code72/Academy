@@ -6,6 +6,8 @@ namespace App\Services;
 
 
 
+use App\Services\KnowledgeIngestion\KnowledgeIngestionService;
+
 use Illuminate\Support\Carbon;
 
 use Illuminate\Support\Facades\Http;
@@ -34,7 +36,9 @@ class GeminiLiveService
 
     public function __construct(
 
-        private GeminiVisionChatService $gemini
+        private GeminiVisionChatService $gemini,
+
+        private KnowledgeIngestionService $knowledge,
 
     ) {}
 
@@ -56,7 +60,7 @@ class GeminiLiveService
 
      */
 
-    public function createSessionToken(): array
+    public function createSessionToken(?string $topic = null, ?string $curriculumPrompt = null, ?string $track = null, ?string $coachOpener = null): array
 
     {
 
@@ -154,7 +158,7 @@ class GeminiLiveService
 
                 'voice'             => $this->voiceName(),
 
-                'systemInstruction' => $this->systemInstruction(),
+                'systemInstruction' => $this->systemInstruction($topic, $curriculumPrompt, $track, $coachOpener),
 
             ];
 
@@ -200,22 +204,34 @@ class GeminiLiveService
 
 
 
-    private function systemInstruction(): string
+    private function systemInstruction(?string $topic = null, ?string $curriculumPrompt = null, ?string $track = null, ?string $coachOpener = null): string
 
     {
 
         $name = ai_assistant_name();
 
-        return 'You are ' . $name . ', a helpful real-time voice assistant for an online academy platform. '
-            . 'Your name is ' . $name . '. Introduce yourself by this name when appropriate. '
+        $instruction = str_replace('{name}', $name, (string) config('coach_prompts.identity_voice', ''));
 
-            . 'Have natural spoken conversations. Keep answers concise and conversational unless the user asks for detail. '
+        if ($curriculumPrompt !== null && trim($curriculumPrompt) !== '') {
+            $instruction .= trim($curriculumPrompt);
+        } else {
+            $instruction .= ' You know the learner\'s path. Start by announcing the modules to work on. '
+                . 'FORBIDDEN: asking how you can help or what they need.';
+        }
 
-            . 'When the user shares their screen or camera, you can see live video frames — use them to answer questions about what is visible. '
+        if ($coachOpener !== null && trim($coachOpener) !== '') {
+            $instruction .= ' REQUIRED FIRST MESSAGE (say this first, word for word if needed): ' . trim($coachOpener);
+        }
 
-            . 'Help with courses, navigation, learning questions, and what the user describes. '
+        $grounding = ($topic !== null && trim($topic) !== '')
+            ? $this->knowledge->buildGrounding($topic, $track, 4)
+            : '';
 
-            . 'Respond in the same language the user speaks.';
+        if ($grounding !== '') {
+            $instruction .= $this->knowledge->groundingPromptSuffix($grounding);
+        }
+
+        return $instruction;
 
     }
 

@@ -47,7 +47,57 @@
 
     function setTranscript(text) {
         if (transcriptEl) {
-            transcriptEl.textContent = text || '';
+            transcriptEl.textContent = sanitizeCoachTranscript(text || '');
+        }
+    }
+
+    function sanitizeCoachTranscript(text) {
+        var raw = String(text || '');
+        var lower = raw.toLowerCase();
+        var forbidden = [
+            'comment puis-je vous aider',
+            'comment puis je vous aider',
+            'how can i help',
+            'how may i help',
+            'de quoi avez-vous besoin',
+        ];
+
+        for (var i = 0; i < forbidden.length; i++) {
+            if (lower.indexOf(forbidden[i]) !== -1) {
+                return String(cfg.openingMessage || cfg.launchBriefing || raw);
+            }
+        }
+
+        return raw;
+    }
+
+    function sendCoachVoiceOpener() {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+            return;
+        }
+
+        var opener = String(cfg.openingMessage || cfg.launchBriefing || '').trim();
+        if (!opener) {
+            return;
+        }
+
+        setTranscript(opener);
+
+        try {
+            ws.send(JSON.stringify({
+                clientContent: {
+                    turns: [{
+                        role: 'user',
+                        parts: [{
+                            text: 'You are the coach. Announce the path modules then teach the current step. '
+                                + 'FORBIDDEN to ask how you can help. Follow this message: ' + opener,
+                        }],
+                    }],
+                    turnComplete: true,
+                },
+            }));
+        } catch (e) {
+            // ignore
         }
     }
 
@@ -551,13 +601,26 @@
     }
 
     async function fetchLiveToken() {
+        var topicEl = document.getElementById('gemini-assistant-input');
+        var topic = topicEl ? String(topicEl.value || '').trim() : '';
+        var trackEl = document.getElementById('gemini-coach-track');
+        var track = trackEl ? String(trackEl.value || '').trim() : '';
+        if (!track && cfg.defaultTrack) {
+            track = String(cfg.defaultTrack || '').trim();
+        }
+
         var response = await fetch(cfg.liveTokenUrl, {
             method: 'POST',
             headers: {
                 'Accept': 'application/json',
+                'Content-Type': 'application/json',
                 'X-CSRF-TOKEN': csrfToken(),
                 'X-Requested-With': 'XMLHttpRequest',
             },
+            body: JSON.stringify({
+                topic: topic ? topic.slice(0, 500) : null,
+                track: track || null,
+            }),
         });
 
         var data = await response.json().catch(function () {
@@ -568,6 +631,10 @@
         }
         if (!data.token || !data.model) {
             throw new Error(cfg.errors.liveVoiceFailed || 'Invalid live voice session response.');
+        }
+
+        if (data.openingMessage) {
+            cfg.openingMessage = data.openingMessage;
         }
 
         return data;
@@ -612,7 +679,7 @@
                 },
                 systemInstruction: {
                     parts: [{
-                        text: tokenData.systemInstruction || 'You are a helpful voice assistant.',
+                        text: tokenData.systemInstruction || ('I\'m ' + (cfg.coachName || cfg.assistantName || 'your coach') + ', Defrilex Academy COACH. We will work through the path step by step. FORBIDDEN: asking how I can help.'),
                     }],
                 },
                 inputAudioTranscription: {},
@@ -740,6 +807,7 @@
             isConnecting = false;
             isActive = true;
             updateVoiceButtonState();
+            sendCoachVoiceOpener();
             await startMicStreaming();
             startVideoFrameLoop();
             syncVoicePreviewUi();

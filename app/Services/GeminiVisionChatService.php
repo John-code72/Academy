@@ -2,12 +2,17 @@
 
 namespace App\Services;
 
+use App\Services\KnowledgeIngestion\KnowledgeIngestionService;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class GeminiVisionChatService
 {
+    public function __construct(
+        private readonly KnowledgeIngestionService $knowledge,
+    ) {}
+
     public function isConfigured(): bool
     {
         return (bool) $this->apiKey();
@@ -36,8 +41,15 @@ class GeminiVisionChatService
      * @param  array{mimeType: string, data: string}|null  $image
      * @return array{ok: bool, reply?: string, error?: string}
      */
-    public function chat(string $message, array $history = [], ?array $image = null, bool $isLive = false, ?string $source = null): array
-    {
+    public function chat(
+        string $message,
+        array $history = [],
+        ?array $image = null,
+        bool $isLive = false,
+        ?string $source = null,
+        ?string $department = null,
+        ?string $curriculumPrompt = null,
+    ): array {
         $apiKey = $this->apiKey();
         if (! $apiKey) {
             return ['ok' => false, 'error' => 'AI assistant API key is not configured.'];
@@ -84,17 +96,31 @@ class GeminiVisionChatService
 
         $name = ai_assistant_name();
 
-        $systemText = 'You are ' . $name . ', a helpful learning assistant for an online academy platform. '
-            . 'Your name is ' . $name . '. '
-            . 'Users may share camera photos or screen captures so you can see what they see. '
-            . 'Help them understand course content, navigate the platform, troubleshoot issues, '
-            . 'and answer questions about what appears on screen. Be concise, practical, and supportive. '
-            . 'Respond in the same language the user writes in.';
+        $systemText = str_replace('{name}', $name, (string) config('coach_prompts.identity_chat', ''));
 
         if ($isLive && $source === 'screen') {
             $systemText .= ' The user is sharing their SCREEN in real time. Focus on UI elements, buttons, menus, errors, and course content visible on screen. Give step-by-step guidance.';
         } elseif ($isLive) {
             $systemText .= ' The user is sharing a LIVE feed: each image is a real-time frame from their camera or screen. Analyze the current view and give immediate, actionable guidance.';
+        }
+
+        if ($curriculumPrompt !== null && trim($curriculumPrompt) !== '') {
+            $systemText .= trim($curriculumPrompt);
+        } else {
+            $systemText .= ' No active path: invite the learner to select a learning path in the interface. '
+                . 'Do not ask open-ended needs questions — suggest available paths and briefly explain what each covers.';
+        }
+
+        $grounding = $this->buildKnowledgeGrounding(
+            $message,
+            $history,
+            $department,
+            $isLive,
+            $source,
+            $curriculumPrompt !== null && trim($curriculumPrompt) !== '',
+        );
+        if ($grounding !== '') {
+            $systemText .= $this->knowledge->groundingPromptSuffix($grounding);
         }
 
         $response = Http::timeout(120)
@@ -161,5 +187,69 @@ class GeminiVisionChatService
     private function endpoint(string $model): string
     {
         return 'https://generativelanguage.googleapis.com/v1beta/models/' . $model . ':generateContent';
+    }
+
+    private function buildKnowledgeGrounding(
+        string $message,
+        array $history = [],
+        ?string $department = null,
+        bool $isLive = false,
+        ?string $source = null,
+        bool $curriculumMode = false,
+    ): string {
+        if (! $curriculumMode && $this->shouldSkipKnowledgeGrounding($message, $isLive, $source)) {
+            return '';
+        }
+
+        $searchText = trim($message);
+
+        foreach (array_reverse($history) as $turn) {
+            if (($turn['role'] ?? '') === 'user') {
+                $previous = trim((string) ($turn['text'] ?? ''));
+                if ($previous !== '') {
+                    $searchText = $previous . ' ' . $searchText;
+                }
+                break;
+            }
+        }
+
+        return $this->knowledge->buildGrounding($searchText, $department, $curriculumMode ? 4 : 6);
+    }
+
+    private function shouldSkipKnowledgeGrounding(string $message, bool $isLive, ?string $source): bool
+    {
+        if ($isLive && $source === 'screen') {
+            return true;
+        }
+
+        $text = mb_strtolower(trim($message));
+        if ($text === '') {
+            return true;
+        }
+
+        $uiHints = ['button', 'menu', 'screen', 'click', 'login', 'password', 'page', 'navigate', 'écran', 'bouton', 'cliquer', 'connexion', 'mot de passe'];
+        $coachingHints = [
+            'interpreter', 'interpret', 'customer', 'service', 'sales', 'marketing', 'coach', 'ethic',
+            'standard', 'training', 'interprète', 'client', 'vente', 'éthique', 'norme', 'formation',
+        ];
+
+        $hasUi = false;
+        $hasCoaching = false;
+
+        foreach ($uiHints as $hint) {
+            if (str_contains($text, $hint)) {
+                $hasUi = true;
+                break;
+            }
+        }
+
+        foreach ($coachingHints as $hint) {
+            if (str_contains($text, $hint)) {
+                $hasCoaching = true;
+                break;
+            }
+        }
+
+        return $hasUi && ! $hasCoaching;
     }
 }

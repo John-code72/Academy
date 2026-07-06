@@ -54,6 +54,8 @@ Route::redirect('/gemini-assistant/', '/ai-assistant', 301);
 Route::middleware(['auth'])->prefix('ai-assistant')->group(function () {
     Route::get('/', [GeminiAssistantController::class, 'index'])->name('ai.assistant.page');
     Route::get('status', [GeminiAssistantController::class, 'status'])->name('ai.assistant.status');
+    Route::get('coach/progress', [GeminiAssistantController::class, 'coachProgress'])->name('ai.assistant.coach.progress');
+    Route::post('coach/start', [GeminiAssistantController::class, 'coachStart'])->name('ai.assistant.coach.start');
     Route::post('chat', [GeminiAssistantController::class, 'chat'])->name('ai.assistant.chat');
     Route::post('live-token', [GeminiAssistantController::class, 'liveToken'])->name('ai.assistant.live-token');
 });

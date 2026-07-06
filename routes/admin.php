@@ -10,6 +10,7 @@ use App\Http\Controllers\Admin\CategoryController;
 use App\Http\Controllers\Admin\EbookCategoryController;
 use App\Http\Controllers\Admin\EbookController;
 use App\Http\Controllers\Admin\KnowledgeBaseController;
+use App\Http\Controllers\Admin\KnowledgeSourceIngestController;
 use App\Http\Controllers\Admin\MessageController;
 use App\Http\Controllers\Admin\OfflinePaymentController;
 use App\Http\Controllers\Admin\OpenAiController;
@@ -577,6 +578,12 @@ Route::name('admin.')->prefix('admin')->middleware('admin')->group(function () {
     });
 
     //new route for knowledge
+
+    Route::controller(KnowledgeSourceIngestController::class)->group(function () {
+        Route::get('knowledge-sources', 'index')->name('knowledge.sources');
+        Route::post('knowledge-sources/ingest', 'ingest')->name('knowledge.sources.ingest');
+        Route::get('knowledge-sources/search', 'search')->name('knowledge.sources.search');
+    });
 
     Route::controller(KnowledgeBaseController::class)->group(function () {
 
